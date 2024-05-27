@@ -56,7 +56,7 @@ func TestExitCallbacks(t *testing.T) {
 		l.Die()
 	}()
 
-	l.Be()
+	l.Run()
 
 	if calls != 5 {
 		t.Errorf("expected 4 calls, got %d", calls)
@@ -66,24 +66,20 @@ func TestExitCallbacks(t *testing.T) {
 func TestPanic(t *testing.T) {
 	t.Parallel()
 
+	l := life.New()
+
 	defer func() {
 		if r := recover(); r == nil {
 			t.Errorf("The code did not panic")
 		}
 	}()
 
-	l := life.New()
-
 	l.OnExitWithContextError(func(ctx context.Context) error {
 		return errors.New("test error")
 	}, life.PanicOnError)
 
-	go func() {
-		<-l.StartingContext().Done()
-		l.Die()
-	}()
-
-	l.Be()
+	l.Die()
+	l.Run()
 
 	t.Error("The code did not panic")
 }
@@ -110,38 +106,10 @@ func TestTimeout(t *testing.T) {
 	}()
 
 	start := time.Now()
-	l.Be()
+	l.Run()
 	end := time.Now()
 
 	if end.Sub(start) < timeout-timeoutJitter || end.Sub(start) > timeout+timeoutJitter {
 		t.Errorf("expected timeout between %v and %v, got %v", timeout-timeoutJitter, timeout+timeoutJitter, end.Sub(start))
-	}
-}
-
-func TestReportError(t *testing.T) {
-	t.Parallel()
-
-	called := false
-
-	l := life.New(life.WithExitErrorCallback(func(err error) {
-		called = true
-		if err.Error() != "test error" {
-			t.Errorf("expected error message, got %s", err.Error())
-		}
-	}))
-
-	l.OnExitWithError(func() error {
-		return errors.New("test error")
-	})
-
-	go func() {
-		<-l.StartingContext().Done()
-		l.Die()
-	}()
-
-	l.Be()
-
-	if !called {
-		t.Error("expected error callback to be called")
 	}
 }

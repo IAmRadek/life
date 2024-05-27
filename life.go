@@ -1,13 +1,13 @@
 /*
-Package life implements simple mechanism for managing a lifetime of an application.
+Package lifecycle implements simple mechanism for managing a lifetime of an application.
 It provides a way to register a functions that will be called when the application is about to exit.
 It distinguishes between starting, running and teardown phases.
 
-The application is considered to be starting before calling Life.Be().
+The application is considered to be starting before calling Life.Run().
 You can use Life.StartingContext() to get a context that can be used to control the startup phase.
 Starting context is cancelled when the startup phase is over.
 
-The application is considered to be running after calling Life.Be() and before calling Life.Die().
+The application is considered to be running after calling Life.Run() and before calling Life.Die().
 You can use Life.Context() to get a context that can be used to control the running phase.
 It is cancelled when the application is about to exit.
 
@@ -81,7 +81,7 @@ func (l *Life) start() {
 }
 
 // StartingContext returns a context that will be cancelled after the starting timeout.
-// It can be used to control the startup of the application. It will be cancelled after calling Life.Be().
+// It can be used to control the startup of the application. It will be cancelled after calling Life.Run().
 func (l *Life) StartingContext() context.Context {
 	return l.startingCtx
 }
@@ -93,7 +93,7 @@ func (l *Life) Context() context.Context {
 }
 
 // OnExit registers a callback that will be called when the application is about to exit.
-// Has no effect after calling Life.Be().
+// Has no effect after calling Life.Run().
 // Use life.Async option to execute the callback in a separate goroutine.
 // life.PanicOnError has no effect on this function.
 func (l *Life) OnExit(callback func(), exitOpts ...exitCallbackOpt) {
@@ -106,7 +106,7 @@ func (l *Life) OnExit(callback func(), exitOpts ...exitCallbackOpt) {
 }
 
 // OnExitWithError registers a callback that will be called when the application is about to exit.
-// Has no effect after calling Life.Be().
+// Has no effect after calling Life.Run().
 // The callback can return an error that will be passed to the error handler.
 // Use life.Async option to execute the callback in a separate goroutine.
 // Use life.PanicOnError to panic with the error returned by the callback.
@@ -117,7 +117,7 @@ func (l *Life) OnExitWithError(callback func() error, exitOpts ...exitCallbackOp
 }
 
 // OnExitWithContext registers a callback that will be called when the application is about to exit.
-// Has no effect after calling Life.Be().
+// Has no effect after calling Life.Run().
 // The callback will receive a context that will be cancelled after the teardown timeout.
 // Use life.Async option to execute the callback in a separate goroutine.
 // life.PanicOnError has no effect on this function.
@@ -129,7 +129,7 @@ func (l *Life) OnExitWithContext(callback func(context.Context), exitOpts ...exi
 }
 
 // OnExitWithContextError registers a callback that will be called when the application is about to exit.
-// Has no effect after calling Life.Be().
+// Has no effect after calling Life.Run().
 // The callback will receive a context that will be cancelled after the teardown timeout.
 // The callback can return an error that will be passed to the error handler.
 // Use life.Async option to execute the callback in a separate goroutine.
@@ -162,9 +162,16 @@ func (l *Life) TeardownContext() context.Context {
 }
 
 // Die stops the application.
+// It will also block until all the registered callbacks are executed.
+// If the teardown timeout is set, it will be used to cancel the context passed to the callbacks.
 func (l *Life) Die() {
+	if l.phase.Load() == int32(phaseTeardown) {
+		return
+	}
+
 	l.phase.Store(int32(phaseTeardown))
-	close(l.die)
+
+	l.runningCancel()
 
 	go func() {
 		if l.teardownTimeout > 0 {
@@ -172,23 +179,20 @@ func (l *Life) Die() {
 			l.teardownCancel()
 		}
 	}()
+
+	l.exit()
+	close(l.die)
 }
 
-// Be starts the application. It will block until the application is stopped by calling Die.
-// It will also block until all the registered callbacks are executed.
-// If the teardown timeout is set, it will be used to cancel the context passed to the callbacks.
-func (l *Life) Be() {
+// Run starts the application. It will block until the application is stopped by calling Die.
+func (l *Life) Run() {
 	if !l.phase.CompareAndSwap(int32(phaseStarting), int32(phaseRunning)) {
-		panic("Life.Be() called after Life.Die()")
+		panic("Life.Run() called after Life.Die()")
 	}
 
 	l.startingCancel()
 
 	<-l.die
-
-	l.runningCancel()
-
-	l.exit()
 }
 
 func (l *Life) exit() {
