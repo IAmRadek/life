@@ -30,7 +30,7 @@ type Life struct {
 	die   chan struct{}
 
 	runningCtx    context.Context
-	runningCancel context.CancelFunc
+	runningCancel context.CancelCauseFunc
 
 	startingCtx     context.Context
 	startingCancel  context.CancelFunc
@@ -47,7 +47,7 @@ type Life struct {
 
 // New creates a new instance of Life.
 func New(opts ...opt) *Life {
-	runningCtx, runningCancel := context.WithCancel(context.Background())
+	runningCtx, runningCancel := context.WithCancelCause(context.Background())
 	teardownCtx, teardownCancel := context.WithCancel(context.Background())
 	l := &Life{
 		die:       make(chan struct{}),
@@ -73,7 +73,7 @@ func (l *Life) start() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	if l.startingTimeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, l.startingTimeout)
+		ctx, _ = context.WithTimeout(ctx, l.startingTimeout)
 	}
 
 	l.startingCtx = ctx
@@ -164,14 +164,14 @@ func (l *Life) TeardownContext() context.Context {
 // Die stops the application.
 // It will also block until all the registered callbacks are executed.
 // If the teardown timeout is set, it will be used to cancel the context passed to the callbacks.
-func (l *Life) Die() {
+func (l *Life) Die(reason error) {
 	if l.phase.Load() == int32(phaseTeardown) {
 		return
 	}
 
 	l.phase.Store(int32(phaseTeardown))
 
-	l.runningCancel()
+	l.runningCancel(reason)
 
 	go func() {
 		if l.teardownTimeout > 0 {
@@ -185,7 +185,7 @@ func (l *Life) Die() {
 }
 
 // Run starts the application. It will block until the application is stopped by calling Die.
-func (l *Life) Run() {
+func (l *Life) Run() error {
 	if !l.phase.CompareAndSwap(int32(phaseStarting), int32(phaseRunning)) {
 		panic("Life.Run() called after Life.Die()")
 	}
@@ -193,6 +193,8 @@ func (l *Life) Run() {
 	l.startingCancel()
 
 	<-l.die
+
+	return l.runningCtx.Err()
 }
 
 func (l *Life) exit() {

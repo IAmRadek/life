@@ -1,6 +1,7 @@
 package life
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"time"
@@ -29,6 +30,8 @@ func WithStartingTimeout(timeout time.Duration) opt {
 	}
 }
 
+var ErrSignaled = fmt.Errorf("received signal")
+
 // WithSignal calls Life.Die() when the specified signal is received.
 func WithSignal(s1 os.Signal, sMany ...os.Signal) opt {
 	return func(l *Life) {
@@ -36,8 +39,8 @@ func WithSignal(s1 os.Signal, sMany ...os.Signal) opt {
 		signal.Notify(notify, append(sMany, s1)...)
 
 		go func() {
-			<-notify
-			l.Die()
+			sig := <-notify
+			l.Die(fmt.Errorf("%w: %q", ErrSignaled, sig))
 		}()
 	}
 }

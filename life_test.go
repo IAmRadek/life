@@ -3,12 +3,15 @@ package life_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/IAmRadek/life"
 )
+
+var unexpectedErr = fmt.Errorf("unexpected err")
 
 func TestExitCallbacks(t *testing.T) {
 	t.Parallel()
@@ -53,10 +56,12 @@ func TestExitCallbacks(t *testing.T) {
 
 	go func() {
 		<-l.StartingContext().Done()
-		l.Die()
+		l.Die(unexpectedErr)
 	}()
 
-	l.Run()
+	if err := l.Run(); errors.Is(err, unexpectedErr) {
+		t.Errorf("expected %q, got: %q", unexpectedErr, err)
+	}
 
 	if calls != 5 {
 		t.Errorf("expected 4 calls, got %d", calls)
@@ -78,8 +83,10 @@ func TestPanic(t *testing.T) {
 		return errors.New("test error")
 	}, life.PanicOnError)
 
-	l.Die()
-	l.Run()
+	l.Die(unexpectedErr)
+	if err := l.Run(); errors.Is(err, unexpectedErr) {
+		t.Errorf("expected %q, got: %q", unexpectedErr, err)
+	}
 
 	t.Error("The code did not panic")
 }
@@ -102,11 +109,13 @@ func TestTimeout(t *testing.T) {
 
 	go func() {
 		<-l.StartingContext().Done()
-		l.Die()
+		l.Die(unexpectedErr)
 	}()
 
 	start := time.Now()
-	l.Run()
+	if err := l.Run(); errors.Is(err, unexpectedErr) {
+		t.Errorf("expected %q, got: %q", unexpectedErr, err)
+	}
 	end := time.Now()
 
 	if end.Sub(start) < timeout-timeoutJitter || end.Sub(start) > timeout+timeoutJitter {
