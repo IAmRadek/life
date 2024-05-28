@@ -194,7 +194,7 @@ func (l *Life) Run() error {
 
 	<-l.die
 
-	return l.runningCtx.Err()
+	return context.Cause(l.runningCtx)
 }
 
 func (l *Life) exit() {

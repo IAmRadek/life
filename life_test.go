@@ -59,7 +59,7 @@ func TestExitCallbacks(t *testing.T) {
 		l.Die(unexpectedErr)
 	}()
 
-	if err := l.Run(); errors.Is(err, unexpectedErr) {
+	if err := l.Run(); !errors.Is(err, unexpectedErr) {
 		t.Errorf("expected %q, got: %q", unexpectedErr, err)
 	}
 
@@ -84,7 +84,7 @@ func TestPanic(t *testing.T) {
 	}, life.PanicOnError)
 
 	l.Die(unexpectedErr)
-	if err := l.Run(); errors.Is(err, unexpectedErr) {
+	if err := l.Run(); !errors.Is(err, unexpectedErr) {
 		t.Errorf("expected %q, got: %q", unexpectedErr, err)
 	}
 
@@ -113,7 +113,7 @@ func TestTimeout(t *testing.T) {
 	}()
 
 	start := time.Now()
-	if err := l.Run(); errors.Is(err, unexpectedErr) {
+	if err := l.Run(); !errors.Is(err, unexpectedErr) {
 		t.Errorf("expected %q, got: %q", unexpectedErr, err)
 	}
 	end := time.Now()
