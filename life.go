@@ -1,6 +1,6 @@
 /*
-Package lifecycle implements simple mechanism for managing a lifetime of an application.
-It provides a way to register a functions that will be called when the application is about to exit.
+Package lifecycle implements a simple mechanism for managing a lifetime of an application.
+It provides a way to register functions that will be called when the application is about to exit.
 It distinguishes between starting, running and teardown phases.
 
 The application is considered to be starting before calling Life.Run().
@@ -43,6 +43,7 @@ type Life struct {
 	callbacks []*callback
 
 	errorHandler func(error)
+	callbacksMu  *sync.Mutex
 }
 
 // New creates a new instance of Life.
@@ -50,8 +51,9 @@ func New(opts ...opt) *Life {
 	runningCtx, runningCancel := context.WithCancelCause(context.Background())
 	teardownCtx, teardownCancel := context.WithCancel(context.Background())
 	l := &Life{
-		die:       make(chan struct{}),
-		callbacks: make([]*callback, 0),
+		die:         make(chan struct{}),
+		callbacksMu: &sync.Mutex{},
+		callbacks:   make([]*callback, 0),
 
 		runningCtx:    runningCtx,
 		runningCancel: runningCancel,
@@ -73,7 +75,16 @@ func (l *Life) start() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	if l.startingTimeout > 0 {
-		ctx, _ = context.WithTimeout(ctx, l.startingTimeout)
+		ctx, cancel = context.WithTimeout(ctx, l.startingTimeout)
+		go func() {
+			select {
+			case <-ctx.Done():
+				if l.phase.Load() == int32(phaseStarting) {
+					l.runningCancel(ctx.Err())
+					close(l.die)
+				}
+			}
+		}()
 	}
 
 	l.startingCtx = ctx
@@ -151,6 +162,8 @@ func (l *Life) addCallback(cb func(context.Context) error, exitOpts ...exitCallb
 		opt(c)
 	}
 
+	l.callbacksMu.Lock()
+	defer l.callbacksMu.Unlock()
 	l.callbacks = append(l.callbacks, c)
 }
 
@@ -162,16 +175,27 @@ func (l *Life) TeardownContext() context.Context {
 }
 
 // Die stops the application.
-// It will also block until all the registered callbacks are executed.
-// If the teardown timeout is set, it will be used to cancel the context passed to the callbacks.
 func (l *Life) Die(reason error) {
-	if l.phase.Load() == int32(phaseTeardown) {
+	if !l.phase.CompareAndSwap(int32(phaseRunning), int32(phaseTeardown)) {
 		return
 	}
 
-	l.phase.Store(int32(phaseTeardown))
-
 	l.runningCancel(reason)
+	close(l.die)
+}
+
+// Run starts the application. It will block until the application is stopped by calling Die.
+// It will also block until all the registered callbacks are executed.
+// If the teardown timeout is set, it will be used to cancel the context passed to the callbacks.
+// Returns the error that caused the application to stop.
+func (l *Life) Run() error {
+	if !l.phase.CompareAndSwap(int32(phaseStarting), int32(phaseRunning)) {
+		panic("Life.Run() called after Life.Die()")
+	}
+
+	l.startingCancel()
+
+	<-l.die
 
 	go func() {
 		if l.teardownTimeout > 0 {
@@ -181,18 +205,6 @@ func (l *Life) Die(reason error) {
 	}()
 
 	l.exit()
-	close(l.die)
-}
-
-// Run starts the application. It will block until the application is stopped by calling Die.
-func (l *Life) Run() error {
-	if !l.phase.CompareAndSwap(int32(phaseStarting), int32(phaseRunning)) {
-		panic("Life.Run() called after Life.Die()")
-	}
-
-	l.startingCancel()
-
-	<-l.die
 
 	return context.Cause(l.runningCtx)
 }
@@ -210,7 +222,15 @@ func (l *Life) exit() {
 		wg.Add(1)
 		go func(cb *callback) {
 			defer wg.Done()
-			if err := cb.fn(ctx); err != nil {
+
+			execCtx := ctx
+			if cb.timeout > 0 {
+				var cancel context.CancelFunc
+				execCtx, cancel = context.WithTimeout(ctx, cb.timeout)
+				defer cancel()
+			}
+
+			if err := cb.fn(execCtx); err != nil {
 				l.handleExitError(cb.errorBehaviour, err)
 			}
 		}(cb)
@@ -227,7 +247,14 @@ func (l *Life) exit() {
 		default:
 		}
 
-		if err := cb.fn(ctx); err != nil {
+		execCtx := ctx
+		if cb.timeout > 0 {
+			var cancel context.CancelFunc
+			execCtx, cancel = context.WithTimeout(ctx, cb.timeout)
+			defer cancel()
+		}
+
+		if err := cb.fn(execCtx); err != nil {
 			l.handleExitError(cb.errorBehaviour, err)
 		}
 	}

@@ -2,6 +2,7 @@ package life
 
 import (
 	"context"
+	"time"
 )
 
 type exitCallbackOpt func(*callback)
@@ -14,6 +15,12 @@ func Async(c *callback) {
 // PanicOnError sets the callback to panic with the error returned by the callback.
 func PanicOnError(c *callback) {
 	c.errorBehaviour = panicOnError
+}
+
+func Timeout(timeout time.Duration) exitCallbackOpt {
+	return func(c *callback) {
+		c.timeout = timeout
+	}
 }
 
 type executeBehaviour int
@@ -33,5 +40,6 @@ const (
 type callback struct {
 	executeBehaviour executeBehaviour
 	errorBehaviour   exitBehaviour
+	timeout          time.Duration
 	fn               func(context.Context) error
 }

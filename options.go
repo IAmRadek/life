@@ -36,7 +36,7 @@ var ErrSignaled = fmt.Errorf("received signal")
 func WithSignal(s1 os.Signal, sMany ...os.Signal) opt {
 	return func(l *Life) {
 		notify := make(chan os.Signal, 1)
-		signal.Notify(notify, append(sMany, s1)...)
+		signal.Notify(notify, append([]os.Signal{s1}, sMany...)...)
 
 		go func() {
 			sig := <-notify

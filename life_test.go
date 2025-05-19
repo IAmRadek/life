@@ -64,7 +64,30 @@ func TestExitCallbacks(t *testing.T) {
 	}
 
 	if calls != 5 {
-		t.Errorf("expected 4 calls, got %d", calls)
+		t.Errorf("expected 5 calls, got %d", calls)
+	}
+}
+
+func TestStartingTimeout(t *testing.T) {
+	t.Parallel()
+
+	l := life.New(life.WithStartingTimeout(10 * time.Millisecond))
+
+	var called bool
+	l.OnExit(func() {
+		called = true
+	})
+
+	// running expensive setup
+	time.Sleep(20 * time.Millisecond)
+
+	err := l.Run()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected %q, got: %q", context.DeadlineExceeded, err)
+	}
+
+	if !called {
+		t.Error("callback was not called")
 	}
 }
 
@@ -83,7 +106,11 @@ func TestPanic(t *testing.T) {
 		return errors.New("test error")
 	}, life.PanicOnError)
 
-	l.Die(unexpectedErr)
+	go func() {
+		<-l.StartingContext().Done()
+		l.Die(unexpectedErr)
+	}()
+
 	if err := l.Run(); !errors.Is(err, unexpectedErr) {
 		t.Errorf("expected %q, got: %q", unexpectedErr, err)
 	}
@@ -91,7 +118,7 @@ func TestPanic(t *testing.T) {
 	t.Error("The code did not panic")
 }
 
-func TestTimeout(t *testing.T) {
+func TestTeardownTimeout(t *testing.T) {
 	t.Parallel()
 
 	timeout := 10 * time.Millisecond
@@ -120,5 +147,39 @@ func TestTimeout(t *testing.T) {
 
 	if end.Sub(start) < timeout-timeoutJitter || end.Sub(start) > timeout+timeoutJitter {
 		t.Errorf("expected timeout between %v and %v, got %v", timeout-timeoutJitter, timeout+timeoutJitter, end.Sub(start))
+	}
+}
+
+func TestOnExitTimeout(t *testing.T) {
+	t.Parallel()
+
+	timeout := 10 * time.Millisecond
+	timeoutJitter := 5 * time.Millisecond
+
+	l := life.New()
+
+	called := false
+	l.OnExit(func() {
+		time.Sleep(2 * timeout)
+		called = true
+	}, life.Timeout(timeout))
+
+	go func() {
+		<-l.StartingContext().Done()
+		l.Die(unexpectedErr)
+	}()
+
+	start := time.Now()
+	if err := l.Run(); !errors.Is(err, unexpectedErr) {
+		t.Errorf("expected %q, got: %q", unexpectedErr, err)
+	}
+	end := time.Now()
+
+	if end.Sub(start) < timeout-timeoutJitter || end.Sub(start) > timeout+timeoutJitter {
+		t.Errorf("expected timeout between %v and %v, got %v", timeout-timeoutJitter, timeout+timeoutJitter, end.Sub(start))
+	}
+
+	if called {
+		t.Error("callback was called")
 	}
 }
