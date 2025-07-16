@@ -127,11 +127,11 @@ func TestTeardownTimeout(t *testing.T) {
 	l := life.New(life.WithTeardownTimeout(timeout))
 
 	l.OnExit(func() {
-		time.Sleep(2 * timeout)
+		panic("should not be called")
 	})
 
 	l.OnExit(func() {
-		panic("should not be called")
+		time.Sleep(2 * timeout)
 	})
 
 	go func() {

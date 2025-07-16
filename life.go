@@ -236,7 +236,8 @@ func (l *Life) exit() {
 		}(cb)
 	}
 
-	for _, cb := range l.callbacks {
+	for i := len(l.callbacks) - 1; i >= 0; i-- {
+		cb := l.callbacks[i]
 		if cb.executeBehaviour != executeSync {
 			continue
 		}
@@ -247,16 +248,17 @@ func (l *Life) exit() {
 		default:
 		}
 
+		var cancel context.CancelFunc = func() {}
 		execCtx := ctx
 		if cb.timeout > 0 {
-			var cancel context.CancelFunc
 			execCtx, cancel = context.WithTimeout(ctx, cb.timeout)
-			defer cancel()
 		}
 
 		if err := cb.fn(execCtx); err != nil {
 			l.handleExitError(cb.errorBehaviour, err)
 		}
+
+		cancel()
 	}
 
 	wg.Wait()
