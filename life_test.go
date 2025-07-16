@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/IAmRadek/life"
+	"github.com/IAmRadek/life/v2"
 )
 
 var unexpectedErr = fmt.Errorf("unexpected err")
